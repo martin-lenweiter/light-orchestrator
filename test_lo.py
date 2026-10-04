@@ -280,16 +280,13 @@ class LoTest(unittest.TestCase):
         self.assertEqual(slow.returncode, 2)
         self.assertIn("another verdict", err)
 
-    # ------------------------------------------------------------ legacy runs
 
-    def test_runs_from_lo_1_use_the_legacy_cli(self):
-        legacy = self.root / "old"
-        legacy.mkdir()
-        (legacy / "ledger.jsonl").write_text(json.dumps({"ts": 1, "type": "init", "title": "old"}) + "\n")
-        (legacy / "state.json").write_text("{}")
-        out = json.loads(self.lo("status", legacy))
-        self.assertEqual(out["phase"], "clarifying")
-
+    def test_a_run_from_lo_1_is_refused_plainly(self):
+        old = self.root / "old"
+        old.mkdir()
+        (old / "ledger.jsonl").write_text(json.dumps({"ts": 1, "type": "init", "title": "old"}) + "\n")
+        (old / "plan.md").write_text("# old\n")
+        self.assertIn("created by lo 1", self.lo("check", old, code=2))
 
 if __name__ == "__main__":
     unittest.main()

@@ -99,5 +99,4 @@ ln -s "$PWD/lo.py" ~/.local/bin/lo
 lo --help
 ```
 
-Python 3, no dependencies. Run folders from lo 1 (they contain
-`state.json`) are handled by `legacy/lo_v1.py`.
+Python 3, no dependencies.

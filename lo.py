@@ -86,6 +86,8 @@ class Run:
                     out.append(json.loads(line))
                 except json.JSONDecodeError as exc:
                     raise LoError(f"corrupt ledger at line {number}: {exc.msg}") from exc
+        if not out or out[0].get("version") != 2:
+            raise LoError(f"{self.dir} was created by lo 1, which this lo cannot read (lo 1 is commit 055cddc)")
         return out
 
     def append(self, event):
@@ -546,20 +548,7 @@ def build_parser():
     return p
 
 
-def legacy_run(argv):
-    """Runs created before lo 2 keep a state.json; hand them to the old CLI."""
-    for arg in argv:
-        if not arg.startswith("-") and (Path(arg).expanduser() / "state.json").is_file():
-            return True
-    return False
-
-
 def main(argv=None):
-    argv = sys.argv[1:] if argv is None else argv
-    if legacy_run(argv):
-        sys.path.insert(0, str(Path(__file__).resolve().parent / "legacy"))
-        import lo_v1
-        return lo_v1.main(argv)
     args = build_parser().parse_args(argv)
     try:
         result = args.fn(args)
