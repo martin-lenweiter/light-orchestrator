@@ -62,7 +62,10 @@ fail without it.
 
 - `verify` has one entry per kind of check, or `"n/a: <reason>"`. A task
   with `repos` changes code, so it needs `commands`, `review`, and `live`.
-  `human` marks a check only you can make.
+  `live` means a verifier agent drives the new behavior itself; scripted
+  checks of existing flows belong in `commands`, and a task that adds a
+  user flow adds it to the repository's verify script. `human` marks a
+  check only you can make.
 - `repos` names the paths the task writes. A verdict records their commit
   and goes stale when they change.
 - Exactly one task has `"acceptance": true` and checks the whole request.

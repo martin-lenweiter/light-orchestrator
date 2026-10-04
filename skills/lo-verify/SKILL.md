@@ -20,6 +20,12 @@ not the worker's report of it.
   refuses a pass when a planned kind has no evidence.
 - `lo verdict` runs the task's `commands` itself and saves the output in
   `reviews/<task>/commands.log`.
+- For `live`, drive the new or changed behavior yourself, the way a user
+  reaches it: click through the flow in a browser, call the changed API, or
+  run the changed command, and try cases the plan did not list. Use an
+  isolated instance when the repository offers one, not the user's live
+  data. Output from a script that reruns existing flows is not `live`
+  evidence; your evidence must show the new behavior.
 - A check you could not perform is not a pass. Record a fail with the reason.
 - A departure from `plan.md` that `decisions.md` does not cover is a finding.
 - Do not lower the bar, and do not add requirements that the plan does not

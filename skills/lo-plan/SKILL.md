@@ -39,11 +39,11 @@ tasks in one `json lo-tasks` block:
      "review": "A reviewer reads the diff against the metric rules in this plan",
      "live": "GET /api/library on the dev server returns totals that match 10 hand-computed notes"}},
   {"id": "ui", "goal": "Add the Library tab", "depends_on": ["engine"],
-   "repos": {"~/code/app": ["app/src/library/"]},
+   "repos": {"~/code/app": ["app/src/library/", "scripts/verify.mjs"]},
    "verify": {
-     "commands": ["npm run lint", "npm test", "npm run build"],
-     "review": "A reviewer reads the diff against the goal",
-     "live": "Screenshots at desktop and 390px width; each number equals the API",
+     "commands": ["npm run lint", "npm test", "npm run build", "npm run verify"],
+     "review": "A reviewer reads the diff against the goal; npm run verify covers the Library tab",
+     "live": "The verifier opens the Library tab at desktop and 390px width; each number equals the API",
      "human": "The user approves the layout before the release task starts"}},
   {"id": "release", "goal": "Ship and run one real intake", "depends_on": ["ui"], "acceptance": true,
    "verify": {"live": "The installed service shows the tab, and one real intake reaches done"}}
@@ -58,8 +58,13 @@ tasks in one `json lo-tasks` block:
   repository of the task and refuses a pass if one fails.
 - A task with `repos` changes code, so it needs `commands`, `review`, and
   `live`, each with a criterion or `n/a: <reason>`. `review` means a
-  reviewer in a fresh context reads the diff. `live` means the real app,
-  API, or command is exercised the way a user reaches it.
+  reviewer in a fresh context reads the diff. `live` means the verifier
+  drives the new or changed behavior in the real app, API, or command, the
+  way a user reaches it; name that flow in the criterion. A script that
+  reruns existing flows belongs in `commands`.
+- A task that adds or changes a user flow also adds that flow to the
+  repository's verify script, so later changes check it mechanically. State
+  this in the task's `review` criterion.
 - Add other kinds where they help, for example `data` for a source check.
   `human` marks a result that only the user can judge, when the answer
   changes later work; do not add it only for a final sign-off.
