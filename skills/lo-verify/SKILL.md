@@ -1,55 +1,42 @@
 ---
 name: lo-verify
-description: Independently verify a lo (light-orchestrator) run's combined result, or a planned checkpoint, in phase verifying. Record task verdicts and findings, then close the round.
+description: Independently verify tasks of a lo (light-orchestrator) run against the approved plan, write the evidence, and record verdicts with lo verdict.
 ---
 
 # Verify
 
-Work in a fresh context, independent of the workers. Read the brief, the
-answers, `decisions.md`, `plan.md`, the task definitions, and the outputs.
-`lo status <run>` lists the tasks that await a verdict.
+Work in a fresh context, independent of the workers. Read `plan.md`,
+`decisions.md`, and the output of `lo check <run>`. Verify inputs before the
+tasks that depend on them, and the acceptance task last.
 
-## Check the result
+## Check each task
 
-Check the combined result against the brief and the user's decisions, then
-assign each defect to the task whose `done_when` it breaks. Perform the check
-that each `done_when` describes, and use your judgment for anything it leaves
-open.
+Perform every entry in the task's `verify` block against the real result,
+not the worker's report of it.
 
-- Examine the actual result, not the worker's report of it.
-- A departure from `plan.md` or `decisions.md` that no recorded decision
-  covers is a finding.
-- A check you could not perform is not a pass. Record why it was not possible.
-- Do not lower the bar, and do not add requirements that the brief and the
-  task do not contain.
-- Do not give verdicts on `"checkpoint": "human"` tasks; the user reviews
-  those.
+- Write the evidence for each kind to `reviews/<task>/<kind>.md`, or to
+  files that start with the kind, such as `reviews/ui/live-desktop.png`.
+  State what you ran, opened, or read, and what you saw. `lo verdict`
+  refuses a pass when a planned kind has no evidence.
+- `lo verdict` runs the task's `commands` itself and saves the output in
+  `reviews/<task>/commands.log`.
+- A check you could not perform is not a pass. Record a fail with the reason.
+- A departure from `plan.md` that `decisions.md` does not cover is a finding.
+- Do not lower the bar, and do not add requirements that the plan does not
+  contain.
+- For a `human` check, the user decides. Record the user's own words with
+  `--quote`; never write them yourself.
 
-Review inputs before their consumers, and refresh `status` after each verdict:
-a failure invalidates downstream outputs, which must run again before they get
-a verdict. At an intermediate checkpoint, judge only the completed work.
-
-## Record verdicts
-
-Write your evidence for each task to `reviews/<id>.md`: what you ran, opened,
-or read, and what you saw. Do not edit worker results. Write findings when
-needed:
-
-```json
-[{"key": "wrong-total", "severity": "blocking", "text": "The page shows 12.90 for item A; the provider shows 13.90."}]
-```
-
-`blocking` means a requirement is unmet; `note` is an improvement outside the
-requirements. Reuse a `key` when the same defect persists.
+## Record the verdict
 
 ```sh
-lo verdict <run> <id> pass [--findings <file>]
-lo verdict <run> <id> fail --findings <file>
+lo verdict <run> <task> pass [--finding <key> "<note>"] [--quote "<user's words>"]
+lo verdict <run> <task> fail --finding <key> "<what is wrong, with evidence>"
 ```
 
-When every agent-reviewed task has a verdict, run
-`lo finish <run>`. It sends failures back for repair,
-continues after checkpoints, or ends the run as `done` or `partial`. While a
-human review is pending, it stops and names the review; run it again after
-the user's verdict. The final report states the outputs, the verification
-results, and the unresolved work truthfully.
+A pass needs committed code in the task's paths; uncommitted changes there
+mean the work is not finished. Reuse a finding's key when the same defect
+persists, so lo can send a stuck task to the user.
+
+Finish with `lo check <run>` and report each task's state to the
+orchestrator.

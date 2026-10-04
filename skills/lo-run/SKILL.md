@@ -1,88 +1,62 @@
 ---
 name: lo-run
-description: Coordinate implementation of an approved lo (light-orchestrator) plan in phase executing. Claim work, delegate tasks, record outputs, record requirement changes, and handle repairs.
+description: Coordinate the work of an approved lo (light-orchestrator) plan. Delegate tasks, keep the plan and decisions current, amend the plan with the user's approval, send work to verification, and handle repairs until lo check reports done.
 ---
 
-# Implement
+# Run
 
-Change state only through the `lo` CLI. Start with
-`lo resume <run>` and `lo status <run>`. When the user asks to see the run,
-show the output of `lo graph <run>` in a code block.
-Resume marks expired claims for attention; it does not stop old processes or
-show whether their external writes succeeded.
+Start with `lo check <run>`. It shows the approval and each task's state:
+no verdict, pass, stale, fail, or needs you. When the user asks to see the
+run, show its output in a code block.
 
-## Coordinate work
+## Delegate
 
-1. `lo claim <run> --owner <agent-id>` returns a task, its
-   dependency outputs, an attempt token, and an output directory, or
-   `claimed: null`.
-2. Give the worker the task, the relevant decisions, and pointers to inputs.
-   On a repair, include the findings and keep passing work.
-3. The worker writes its result to `out/<id>/<token>/result.md` (write a temp
-   file, then rename) and links supporting evidence. Do not edit a result
-   after the task is done; later evidence goes into `reviews/<id>.md`.
-4. Record completion with
-   `lo done <run> <id> --token <token> --output out/<id>/<token>/result.md`
-   and check that the command succeeded.
+Start tasks whose dependencies are done, in parallel where they are
+independent. Use the model and effort set on each task. Give each worker:
 
-Run independent tasks in parallel where it helps. When a
-`"checkpoint": "human"` task is done, show the user its result in the
-conversation and ask for a verdict. Record the answer with
-`lo verdict <run> <id> pass`, or `fail --note "<feedback>"`, from the
-verifying phase, then continue. Use the model and effort
-set on each task. When nothing is runnable and no workers remain, run
-`lo phase <run> verifying` and hand over to an independent
-verifier.
+- the goal, the paths it may write, and the task's `verify` entries;
+- the decisions and inputs it needs, with upstream results pasted in;
+- what it must not do;
+- the report you want: what changed, what it ran and saw, decisions under
+  `## Decisions`, and open questions under `## Needs decision`.
 
-A claim lease lasts 30 minutes; for a longer task, run `resume` and claim
-again. For Codex workers, run `codex exec` with the prompt on stdin
-(`- < prompt.md`) or with stdin closed, because an open stdin makes it wait.
-Capture the final message with `-o <file>`. Stop a worker by its PID, not by a
-pattern match on the model name.
+Workers commit their changes, because a verdict covers committed code only.
+Run at most one task at a time on a shared surface such as one browser
+profile. Track who is working on what yourself; the run does not record it.
 
-## Problems
+Before you repeat an external write, check the destination for the earlier
+write. A timeout does not show that the write failed.
 
-- If a worker cannot finish, record
-  `lo block <run> <id> --token <token> --reason "<what is missing>"`
-  instead of completing it. Do not invent results.
-- Inspect a failed process before a retry, and do not repeat the same failing
-  approach.
-- Before you repeat an external write, check the destination for the earlier
-  write. A timeout does not show that the write failed.
+## Decide and amend
 
-## Keep the run canonical
+Record decisions in `decisions.md` with who made them. Decide minor
+questions yourself. Bring anything material to the user: scope, product
+behavior, a design the user will see, costs, or external writes.
 
-`plan.md`, the tasks, and `decisions.md` are the one source of truth for you,
-the workers, and the verifier. Every change in requirements or design goes
-into them, whether the user raises it or an agent discovers it: update
-`plan.md`, record the decision in `decisions.md` with who made it, and amend
-the tasks when a goal or `done_when` changes.
+When a decision makes `plan.md` wrong, amend the plan:
 
-Workers report decisions under `## Decisions` and open questions under
-`## Needs decision` in their results; copy them into `decisions.md`. Decide minor questions yourself and record
-them as orchestrator decisions. Bring anything material to the user, such as
-scope, product behavior, a design the user will see, costs, or external
-writes, and record the answer. Change approved goals and `done_when` only on
-the user's request. New work that needs its own worker or its own check
-becomes a task through an amendment, even when it serves an existing goal.
+1. Edit `plan.md`. From then on, `lo verdict` refuses to record anything.
+2. Show the user the change with `lo check <run> --diff`, and why.
+3. After the user explicitly approves, run
+   `lo approve <run> --quote "<the user's words>"`. Tasks whose definition
+   changed, and the acceptance task, need new verdicts.
 
-A decision that changes work already done or verified needs an amendment that
-revises the affected tasks, so they run and are checked again; a note in
-`decisions.md` alone does not reopen them. For a large or complex change,
-have a fresh planner agent (the lo-plan skill) draft the amendment, and a
-fresh agent critique it, before you show it to the user.
+For a large change, have a fresh agent with the lo-plan skill draft the
+amendment and another fresh agent critique it before you show it.
 
-To amend the tasks, write a JSON list of task specs: a new id adds a task, an
-existing id revises that task, and `{"id": "<id>", "drop": true}` removes one.
-Revise the acceptance task so it covers the change. Run
-`lo amend <run> <file> --by <user> --note "<change>"`.
+## Verify and repair
 
-The run reopens the revised tasks, their dependents, and the acceptance task;
-other verified work stays verified. Stop workers on the affected tasks first.
-If the change adds external writes, costs, or permissions beyond the approved
-plan, show it to the user before you record it.
+When a task is done, have a fresh agent verify it with the lo-verify skill,
+on a different model family from the worker when one is available. For a
+`human` check, show the user the result and ask for a verdict; the verifier
+records the user's words.
 
-For a `needs-human` task, show the findings to the user. After an authorized
-fix, use `lo resolve <run> <id> --note "<fix>"`. For a failed
-process that needs a new attempt, stop the old worker, check its external
-writes, then use `lo resolve <run> <id> --retry --note "<reason>"`.
+After a fail, give a worker the findings and keep the passing work. A task
+that shows "needs you" goes to the user with its findings. A stale task is
+verified again.
+
+## Finish
+
+The run is done only when `lo check <run>` prints `Result: DONE` and exits
+0. Report from its output: what was delivered, how each task was verified,
+and anything still open.

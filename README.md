@@ -1,112 +1,94 @@
 # lo (light-orchestrator)
 
-`lo` is a shared to-do board for a team of AI agents working on one job. It
-records what was agreed, what is done, what was checked, and what changed, in
-files outside any agent's context. Agents read the board instead of
-remembering, so a long or parallel job stays on track even when you change
-your mind halfway through.
+`lo` carries a large job, done by a team of AI agents, from your request to a
+verified result. It guarantees two things:
 
-It is not an agent itself. It runs inside an agent environment such as Claude
-Code, Codex, or Hermes, which supplies the models and tools. `lo` supplies the
-board and three short skills that tell agents how to use it.
+1. **What you approved is fixed and visible.** The plan you approved is
+   recorded. Any later change shows up and needs your approval again.
+2. **Nothing counts as done until it is verified.** Each task lists what must
+   be checked: commands, a code review, a live check, your own judgment. A
+   pass needs evidence for every check, and it goes stale when the code
+   changes afterwards.
 
-## Why
-
-- **Less for the model to remember.** The plan, the progress, and every
-  decision live in the run folder. When you add a requirement mid-run, it is
-  written there, and every agent sees it.
-- **One source of truth.** The orchestrator, the workers, and the verifier
-  read the same plan and decision log. A change raised by you or discovered by
-  an agent goes into that record; minor questions the orchestrator decides and
-  logs, material ones come to you.
-- **Independent checking.** A fresh agent that did not do the work checks the
-  result against what you asked for.
-
-## Design principle: delete first
-
-We rely on the agents' intelligence. The planner and orchestrator choose the
-approach, the task split, how each task is checked, where you review, and
-which models to use. `lo` fixes only what must not vary: the shared state, the
-independent check, and your approval of the plan and of scope changes. We add
-a rule or a feature only when capable models fail without it, and remove it
-when they no longer need it.
+It is not an agent. It runs inside an agent environment such as Claude Code,
+Codex, or Hermes, which supplies the models and tools. `lo` supplies three
+skills that tell agents how to plan, run, and verify, and a small CLI that
+records what an agent should not declare about its own work.
 
 ## Using it
 
 Open a chat in the folder or repository you want to work in and say:
 
 > Use lo to build a site that compares fast-food prices across delivery apps.
-> Show me the design before building the rest.
 
 The agent then:
 
-1. creates a run folder (`.lo/<name>`, hidden from git), asks what it needs,
-   writes a plan in which every task says how it will be checked, has a fresh
-   agent critique the plan, and asks for your approval;
-2. after you approve in the chat, runs the tasks, in parallel where they are
-   independent;
-3. stops at each point where you asked to review, shows you the result, and
-   records your answer;
-4. has a fresh agent verify the combined result, repairs what fails, and
-   reports what was delivered, how it was checked, and what is unresolved.
+1. writes a plan in which every task says what will be verified, has a fresh
+   agent critique it, and asks for your approval;
+2. delegates the tasks to workers, in parallel where they are independent;
+3. has fresh agents verify each task, preferably on another model family,
+   repairs what fails, and brings you anything that is stuck;
+4. reports done only when `lo check` says so.
 
-You answer questions and approve in the conversation; you do not need to type
-commands. The chat agent is the orchestrator; it hands tasks to subagents.
+You answer and approve in the conversation; you do not need to type commands.
 
-To run unattended, start the same agent without a chat and point it at the
-run, for example `claude -p "Continue the lo run in .lo/prices with lo-run"`
-or `codex exec`. It stops where it needs you, and all state stays in the run
-folder, so any later chat can pick it up.
+## Design principle: delete first
 
-## How a run works
+The agents choose the approach, the task split, the checks, and the models.
+`lo` fixes only what must not depend on an agent's word: your approval, the
+evidence behind each verdict, the command results, and whether a verdict
+still matches the code. A rule or feature stays only while capable models
+fail without it.
 
-| Stage | What happens |
-|---|---|
-| Plan | The planner clarifies the request, splits it into tasks, and writes each task's check (`done_when`). A fresh agent critiques the plan. You approve it. |
-| Implement | Workers claim tasks and record their outputs. A task starts when its inputs are done. |
-| Verify | A fresh verifier checks the combined result and gives each task a verdict. Failed tasks go back for a bounded number of repairs. |
+## The run folder
 
-**Checkpoints.** A task marked `"checkpoint": true` must pass verification
-before the tasks that depend on it start. A task marked
-`"checkpoint": "human"` waits for your verdict, for example on a design:
+| File | Written by | Contents |
+|---|---|---|
+| `plan.md` | orchestrator | The request, the approach, and the tasks with their checks, in one `json lo-tasks` block. Frozen at approval. |
+| `decisions.md` | orchestrator | Every decision made during the run, and who made it |
+| `reviews/<task>/` | verifiers, `lo` | Evidence for each check, and `commands.log` |
+| `ledger.jsonl` | `lo` only | Approvals (with a copy of the plan) and verdicts |
 
-```sh
-lo verdict <run> design pass
-lo verdict <run> design fail --note "simpler layout, larger prices"
+## A task
+
+```json
+{"id": "ui", "goal": "Add the Library tab", "depends_on": ["engine"],
+ "repos": {"~/code/app": ["app/src/library/"]},
+ "verify": {
+   "commands": ["npm run lint", "npm test", "npm run build"],
+   "review": "A reviewer reads the diff against the goal",
+   "live": "Screenshots at desktop and 390px width; each number equals the API"}}
 ```
 
-**Changes and decisions.** When you change the request, the orchestrator
-records it with `lo amend`, which reopens only the affected tasks. Workers
-report the decisions they make under `## Decisions` and the questions they
-cannot settle under `## Needs decision` in their results. The orchestrator
-records decisions in `decisions.md`, settles minor questions itself, and
-brings material ones to you.
+- `verify` has one entry per kind of check, or `"n/a: <reason>"`. A task
+  with `repos` changes code, so it needs `commands`, `review`, and `live`.
+  `human` marks a check only you can make.
+- `repos` names the paths the task writes. A verdict records their commit
+  and goes stale when they change.
+- Exactly one task has `"acceptance": true` and checks the whole request.
+- `model` and `effort` choose the worker.
 
-**End states.** A run ends `done` when the final (acceptance) task passes and
-nothing is unresolved, otherwise `partial`, with the open items in
-`report.md`.
+## Commands
 
-## Parts
-
-| Part | What it is |
+| Command | What it does |
 |---|---|
-| `lo` (`lo.py`) | The command-line tool that owns the run state. Every change goes through it, so parallel agents cannot overwrite each other and a run survives a crash. One Python 3 file, no dependencies. |
-| `skills/lo-plan` | How to plan a run: clarify, write tasks with checks, get a critique, ask for approval. |
-| `skills/lo-run` | How to coordinate the work: claim tasks, brief workers, keep the plan and decisions current, record changes, handle problems. |
-| `skills/lo-verify` | How to check the result independently and record verdicts. |
-| Run folder | The board itself; see below. |
+| `lo init <run> [--brief <file>]` | Create the run folder with `plan.md` and `decisions.md`, and hide `.lo/` from git |
+| `lo approve <run> --quote "<your words>"` | Validate the plan and record your approval with a copy of it |
+| `lo verdict <run> <task> pass` | Refuse unless the plan matches the approved copy, every check kind has evidence, the task's paths are committed, every other task has passed (for the acceptance task), and every command succeeds; then record the commits |
+| `lo verdict <run> <task> fail --finding <key> "<text>"` | Record a failure. The same finding twice, or three failures, mark the task "needs you". |
+| `lo check <run> [--diff]` | Show the approval, each task's state, and any plan change; exit 0 only when done |
 
-## Run folder
+`lo` checks completeness and freshness, not truth. It cannot tell which agent
+ran a command or whether a review is good, and it cannot see a quote's
+source. Fresh verifiers on another model family, and your own `lo check`,
+are the guards for that.
 
-| File | Contents |
-|---|---|
-| `brief.md`, `questions.md` | Your request, and the questions with their answers |
-| `plan.md`, `tasks.json`, `critique.md` | The current plan, the tasks with their checks, and the critique |
-| `decisions.md` | Every decision made during the run, and who made it |
-| `out/<task>/<attempt>/` | Each worker's output, unchanged after completion |
-| `reviews/<task>.md` | The verifier's evidence for each task |
-| `report.md` | Final status, outputs, findings, and unresolved work |
-| `ledger.jsonl`, `state.json` | The full history and the current state; change them only through `lo` |
+## Amending the plan
+
+The orchestrator edits `plan.md`. From then on `lo check` reports the change
+and `lo verdict` refuses to record anything. The orchestrator shows you
+`lo check --diff`; after you approve, it runs `lo approve`. Tasks whose
+definition changed, and the acceptance task, need new verdicts.
 
 ## Setup
 
@@ -117,30 +99,5 @@ ln -s "$PWD/lo.py" ~/.local/bin/lo
 lo --help
 ```
 
-## Command reference
-
-| Command | Use |
-|---|---|
-| `lo init <run> --brief <file>` | Create a run |
-| `lo status <run>` / `lo graph <run>` | Current state and next action / task graph |
-| `lo phase <run> <phase>` | Move between planning phases |
-| `lo tasks set <run> <file>` | Load the planned tasks |
-| `lo approve <run>` | Approve the plan (on your instruction) |
-| `lo claim`, `lo done`, `lo block` | A worker takes a task, completes it, or reports a blocker |
-| `lo verdict <run> <id> pass\|fail` | Record a verdict (`--findings <file>` or `--note <text>`) |
-| `lo finish <run>` | Close a verification round |
-| `lo amend <run> <file>` | Record a change to the approved tasks |
-| `lo resolve <run> <id>` | Return a task that needed you, after a fix or with `--retry` |
-| `lo resume <run>` | Recover after a crash; flags expired claims |
-
-**Options.** `init --max-parallel N` caps concurrent workers.
-`init --resource browser=1` limits tasks that declare `"uses": ["browser"]`.
-`init --max-repairs N` sets repairs per task (default 2); a finding that
-repeats stops the task for you. Tasks can set a concrete `model` and a
-separate `effort`.
-
-**Recovery.** Each claim has a token and its own output folder, so a stale
-worker cannot overwrite a newer attempt. A claim lease lasts 30 minutes.
-`resume` flags expired claims but cannot tell whether their external writes
-succeeded; check before you retry. `resume --force` releases running claims
-only after you have stopped their workers.
+Python 3, no dependencies. Run folders from lo 1 (they contain
+`state.json`) are handled by `legacy/lo_v1.py`.
